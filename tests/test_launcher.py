@@ -43,7 +43,21 @@ class LauncherTests(unittest.TestCase):
         executable(self.bin / "doas", 'echo "doas $*" >> "$COMMAND_LOG"\n"$@"')
         executable(self.bin / "sh", 'exec /bin/sh "$@"')
         executable(self.bin / "python3", f'''
-case "$*" in *pwd.getpwuid*) exit 0 ;; esac
+case "$*" in
+  *pwd.getpwuid*) exit 0 ;;
+  *" --install-gh "*)
+    if [ ! -x "$PATH/gh" ]; then
+      if [ "$5" != yes ]; then
+        if [ "$6" = yes ] || [ ! -t 3 ]; then echo 'needs --install-prerequisites' >&2; exit 1; fi
+        read -r answer <&3
+        [ "$answer" = y ] || exit 1
+      fi
+      echo upstream-gh-install >> "$COMMAND_LOG"
+      /bin/ln -s "$PATH/available-gh" "$PATH/gh"
+    fi
+    printf '%s/gh\\n' "$PATH"
+    exit 0 ;;
+esac
 exec {PYTHON} "$@"
 ''')
         executable(self.bin / "gh", '''
@@ -182,7 +196,11 @@ printf 'target-root:%s\\n' "$PWD"
                 self.assertEqual(result.returncode, 0, result.stderr)
                 commands = self.commands()
                 prefix = f"{manager} -S --needed --noconfirm" if manager == "pacman" else f"{manager} install -y"
-                self.assertIn(prefix + " " + gh_package, commands)
+                if distro == "freebsd":
+                    self.assertIn(prefix + " " + gh_package, commands)
+                else:
+                    self.assertIn("upstream-gh-install", commands)
+                    self.assertNotIn(prefix + " " + gh_package, commands)
                 self.assertIn(prefix + " " + python_package, commands)
                 self.assertNotIn("-Sy", commands)
                 self.assertEqual(commands.splitlines().count("apt-get update"), 1 if manager == "apt-get" else 0)

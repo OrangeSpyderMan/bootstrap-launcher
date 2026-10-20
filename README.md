@@ -18,7 +18,7 @@ Or:
 wget -qO- https://raw.githubusercontent.com/OrangeSpyderMan/bootstrap-launcher/main/bootstrap.sh | sh -s -- --repo OWNER/PRIVATE-REPO -- --apply
 ```
 
-This offers to install missing launcher prerequisites, uses existing GitHub
+This offers to install Python and an official upstream GitHub CLI release, uses existing GitHub
 authentication or offers browser login, downloads one resolved commit, and runs
 that repository's `setup.sh --apply`. The `--apply` meaning belongs to your setup
 script. Omit it if that script defaults to a preview. The launcher itself can
@@ -32,9 +32,12 @@ authentication and installation choices must already be explicit.
 ## What it does
 
 1. Validate repository/entry-point arguments and the non-root login account.
-2. Detect a supported platform and offer missing Python 3.11+ and GitHub CLI
-   packages through its existing package manager. No third-party package
-   repositories or signing keys are added.
+2. Detect a supported platform and offer missing Python 3.11+ through its
+   package manager. On Linux, retrieve the latest stable GitHub CLI release
+   directly from `cli/cli`, verify the archive's SHA-256 against its official
+   release checksum file, and install it in a user-local versioned cache.
+   Distro GitHub CLI packages and `/usr/bin/gh` are not replaced or used on
+   Linux. No third-party package repositories or signing keys are added.
 3. Verify the authenticated account with `gh api user` (rather than relying on
    `gh auth status`, which can return success without a login in older versions).
    Reuse `GH_TOKEN`/`GITHUB_TOKEN` or an existing login, or ask before running the
@@ -52,6 +55,29 @@ actual host configuration, package choices, keys, backups and application logic.
 Relative paths in that script resolve from the downloaded repository root.
 Archives are limited to 10,000 entries and 100 MiB of uncompressed content;
 repositories containing symlinks are currently unsupported.
+
+## Upstream GitHub CLI
+
+Linux uses official stable release binaries matching the CPU architecture.
+The default is GitHub's latest stable release. Use `--gh-version 2.102.0` (or
+another stable version) to select a reproducible version. The release metadata
+and checksum file come from the public upstream repository without sending
+your private-repository token. Network/API errors and missing assets stop setup.
+
+Installation goes under `~/.local/lib/bootstrap-launcher/gh/VERSION-linux-ARCH/`.
+Only this launcher's process and its target receive that binary on `PATH`;
+your system binary and shell configuration are unchanged. A cached binary is
+reused after checking its recorded binary digest. A changed cache needs a new
+installation confirmation. Old version directories can be removed manually.
+
+SHA-256 catches corrupted or substituted archive bytes relative to the
+published release checksum. It is not an independent publisher signature:
+GitHub HTTPS and the upstream release account remain trust anchors.
+
+Upstream does not publish a native FreeBSD binary. FreeBSD retains `pkg install
+gh`, with browser-login arguments compatible with older GitHub CLI versions.
+`--gh-version` applies only to Linux. Python 3.11+ remains a platform package
+prerequisite, and the initial curl/wget client must already be available.
 
 ## Authentication
 
@@ -82,6 +108,7 @@ is not a signature or independent proof of publisher identity.
 --repo OWNER/REPO             Required, also accepts an HTTPS github.com URL
 --ref REF                    Branch/tag/commit; default main
 --script PATH                Relative shell entry point; default setup.sh
+--gh-version VERSION         Linux upstream stable version; default latest
 --no-prompt                  Disable launcher prompts; require existing auth
 --install-prerequisites      Authorize missing Python/gh installation
 --privilege-tool sudo|doas   Otherwise detected automatically
@@ -107,12 +134,12 @@ public launcher's revision. Only github.com is supported in this initial version
 
 ## Platform support
 
-| Platform | Package manager | GitHub CLI package | Python prerequisite |
+| Platform | Package manager | GitHub CLI source | Python prerequisite |
 | --- | --- | --- | --- |
-| Debian / Ubuntu | APT | `gh` | `python3` |
-| Arch Linux | pacman | `github-cli` | `python` |
-| Fedora (mutable systems) | DNF | `gh` | `python3` |
-| FreeBSD | pkg | `gh` | `python311` |
+| Debian / Ubuntu | APT | Official upstream release | `python3` |
+| Arch Linux | pacman | Official upstream release | `python` |
+| Fedora (mutable systems) | DNF | Official upstream release | `python3` |
+| FreeBSD | pkg | Native `gh` package | `python311` |
 
 An existing supported Python is reused. Unknown distributions, immutable Fedora
 and package repositories unable to provide Python 3.11+ fail explicitly.
@@ -132,8 +159,9 @@ python3 -m unittest discover -s tests -v
 ```
 
 Tests use simulated package managers and GitHub CLI responses. They cover
-package mapping, authentication selection, argument forwarding, streamed
-terminal prompts, failed/incomplete downloads, unsafe archives and cleanup.
+package mapping, upstream release checksums/cache integrity, authentication
+selection, argument forwarding, streamed terminal prompts, failed/incomplete
+downloads, unsafe archives and cleanup.
 They never install packages, authenticate real accounts or contact GitHub.
 Platform paths beyond the maintainer's host still need real-host testing.
 
