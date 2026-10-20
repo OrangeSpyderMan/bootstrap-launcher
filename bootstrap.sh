@@ -146,7 +146,7 @@ HELP
         [ "$no_prompt" = no ] || fail 'No GitHub authentication. Supply GH_TOKEN/GITHUB_TOKEN or run gh auth login first.'
         printf '%s\n' 'Browser login may persist personal credentials on this host, using gh storage (which can fall back to a plaintext file).'
         confirm 'Continue with GitHub browser login on this host?' || fail 'Authentication declined. Use a repository-scoped read-only token instead.'
-        gh auth login --hostname github.com --web --git-protocol https --skip-ssh-key
+        gh auth login --hostname github.com --web --git-protocol https
         account=$(gh api --hostname github.com user --jq .login) || fail 'GitHub browser login did not produce a usable authenticated account.'
         printf 'Authenticated GitHub account: %s.\n' "$account"
     fi

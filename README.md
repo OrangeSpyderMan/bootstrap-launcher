@@ -58,7 +58,9 @@ repositories containing symlinks are currently unsupported.
 For a personal workstation, reuse `gh` or consent to browser login. `gh` manages
 the authentication flow and credential storage. On a minimal system it can fall
 back to plaintext storage; the launcher explains this before asking to log in.
-The resulting login remains on the host. It is not silently logged out, since
+The login command selects HTTPS and uses flags available in Debian trixie
+GitHub CLI 2.46; no SSH-key upload flag is required. The resulting login remains
+on the host. It is not silently logged out, since
 that could disrupt existing tools.
 
 For one-time server setup, supply an **expiring, repository-scoped read-only

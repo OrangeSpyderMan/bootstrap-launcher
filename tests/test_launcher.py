@@ -50,7 +50,19 @@ exec {PYTHON} "$@"
 echo "gh $*" >> "$COMMAND_LOG"
 case "$*" in
   "auth status "*) exit 0 ;; # Reproduce gh 2.46 false-positive status.
-  "auth login "*) [ -t 0 ] || exit 5; : > "$FAKE_AUTH_FILE"; echo "browser-login" ;;
+  "auth login "*)
+    # Model the flags accepted by Debian trixie's gh 2.46.
+    shift 2
+    while [ "$#" -gt 0 ]; do
+      case $1 in
+        --hostname|--git-protocol) shift 2 ;;
+        --web) shift ;;
+        *) echo "unknown login flag: $1" >&2; exit 2 ;;
+      esac
+    done
+    [ -t 0 ] || exit 5
+    : > "$FAKE_AUTH_FILE"
+    echo "browser-login" ;;
   *" user --jq .login")
     if [ "${FAKE_AUTH_STATUS:-0}" != 0 ] && [ ! -f "$FAKE_AUTH_FILE" ]; then exit 1; fi
     echo fixture-user ;;
@@ -244,6 +256,7 @@ printf 'target-root:%s\\n' "$PWD"
             output, errors = process.communicate(self.script.read_text(), timeout=10)
             self.assertEqual(process.returncode, 0, errors)
             self.assertIn("browser-login", output)
+            self.assertIn("gh auth login --hostname github.com --web --git-protocol https\n", self.commands())
             self.assertIn("Authenticated GitHub account: fixture-user", output)
             self.assertNotIn("gh auth status", self.commands())
             self.assertIn("target-root:", output)
