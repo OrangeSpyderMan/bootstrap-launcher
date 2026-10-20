@@ -35,8 +35,11 @@ authentication and installation choices must already be explicit.
 2. Detect a supported platform and offer missing Python 3.11+ and GitHub CLI
    packages through its existing package manager. No third-party package
    repositories or signing keys are added.
-3. Reuse `GH_TOKEN`/`GITHUB_TOKEN`, reuse an existing `gh` login, or ask before
-   running the official `gh auth login --web` flow.
+3. Verify the authenticated account with `gh api user` (rather than relying on
+   `gh auth status`, which can return success without a login in older versions).
+   Reuse `GH_TOKEN`/`GITHUB_TOKEN` or an existing login, or ask before running the
+   official `gh auth login --web` flow. Verify repository access separately
+   before resolving the revision.
 4. Resolve the requested branch/tag/commit once using `gh api`, print the full
    commit SHA, and download that exact repository archive.
 5. Reject archive links, special files and traversal; extract into a private

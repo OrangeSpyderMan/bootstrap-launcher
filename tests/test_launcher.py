@@ -33,7 +33,7 @@ class LauncherTests(unittest.TestCase):
         self.script.write_text((ROOT / "bootstrap.sh").read_text().replace("/etc/os-release", str(self.release)))
         self.env = {key: value for key, value in os.environ.items() if key not in {"GH_TOKEN", "GITHUB_TOKEN", "GH_DEBUG"}}
         self.env.update(PATH=str(self.bin), HOME=str(self.home), COMMAND_LOG=str(self.log),
-                        FIXTURE_ARCHIVE=str(self.root / "source.tar.gz"))
+                        FIXTURE_ARCHIVE=str(self.root / "source.tar.gz"), FAKE_AUTH_FILE=str(self.root / "logged-in"))
         for name in ("cat", "mkdir", "mktemp", "rm"):
             (self.bin / name).symlink_to(shutil.which(name))
         executable(self.bin / "id", "echo 1000")
@@ -49,9 +49,13 @@ exec {PYTHON} "$@"
         executable(self.bin / "gh", '''
 echo "gh $*" >> "$COMMAND_LOG"
 case "$*" in
-  "auth status "*) exit "${FAKE_AUTH_STATUS:-0}" ;;
-  "auth login "*) [ -t 0 ] || exit 5; echo "browser-login" ;;
-  *"/commits/"*) printf '%040d\\n' 1 ;;
+  "auth status "*) exit 0 ;; # Reproduce gh 2.46 false-positive status.
+  "auth login "*) [ -t 0 ] || exit 5; : > "$FAKE_AUTH_FILE"; echo "browser-login" ;;
+  *" user --jq .login")
+    if [ "${FAKE_AUTH_STATUS:-0}" != 0 ] && [ ! -f "$FAKE_AUTH_FILE" ]; then exit 1; fi
+    echo fixture-user ;;
+  *" --jq .full_name") [ "${FAKE_REPO_STATUS:-0}" = 0 ] || exit 1; echo example/private ;;
+  *"/commits/"*) [ "${FAKE_REF_STATUS:-0}" = 0 ] || exit 1; printf '%040d\\n' 1 ;;
   *"/tarball/"*) cat "$FIXTURE_ARCHIVE" ;;
   *) exit 9 ;;
 esac
@@ -116,7 +120,29 @@ printf 'target-root:%s\\n' "$PWD"
         result = self.run_launcher("--repo", "example/private", "--no-prompt")
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("No GitHub authentication", result.stderr)
-        self.assertNotIn("gh api", self.commands())
+        self.assertNotIn("/commits/", self.commands())
+
+    def test_invalid_supplied_token_never_falls_back_to_browser(self):
+        self.env.update(GH_TOKEN="not-a-real-token", FAKE_AUTH_STATUS="1")
+        result = self.run_launcher("--repo", "example/private")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Supplied GitHub token could not authenticate", result.stderr)
+        self.assertNotIn("auth login", self.commands())
+        self.assertNotIn("/commits/", self.commands())
+
+    def test_repository_access_failure_is_distinct_from_bad_ref(self):
+        self.env["FAKE_REPO_STATUS"] = "1"
+        result = self.run_launcher("--repo", "example/private", "--no-prompt")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Account fixture-user cannot read repository", result.stderr)
+        self.assertNotIn("/commits/", self.commands())
+        self.env["FAKE_REPO_STATUS"] = "0"
+        self.env["FAKE_REF_STATUS"] = "1"
+        result = self.run_launcher("--repo", "example/private", "--no-prompt")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Repository access was verified", result.stderr)
+        self.assertNotIn("/tarball/", self.commands())
+
 
     def test_missing_prerequisites_need_explicit_noninteractive_authorization(self):
         (self.bin / "gh").rename(self.bin / "available-gh")
@@ -218,6 +244,8 @@ printf 'target-root:%s\\n' "$PWD"
             output, errors = process.communicate(self.script.read_text(), timeout=10)
             self.assertEqual(process.returncode, 0, errors)
             self.assertIn("browser-login", output)
+            self.assertIn("Authenticated GitHub account: fixture-user", output)
+            self.assertNotIn("gh auth status", self.commands())
             self.assertIn("target-root:", output)
         finally:
             if process is not None and process.poll() is None:

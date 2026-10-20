@@ -136,15 +136,21 @@ HELP
     export GH_HOST
     unset GH_DEBUG
     if [ -n "${GH_TOKEN:+present}${GITHUB_TOKEN:+present}" ]; then
-        printf 'Using supplied GitHub token (not persisted).\n'
-    elif gh auth status --hostname github.com >/dev/null 2>&1; then
-        printf 'Using existing GitHub CLI login.\n'
+        account=$(gh api --hostname github.com user --jq .login) || fail 'Supplied GitHub token could not authenticate. Check the token; browser login was not attempted.'
+        printf 'Using supplied GitHub token for %s (not persisted).\n' "$account"
+    elif account=$(gh api --hostname github.com user --jq .login 2>/dev/null) && [ -n "$account" ]; then
+        # gh 2.46 can report auth-status success without a login when GH_HOST
+        # is set. Verify an authenticated endpoint instead of trusting status.
+        printf 'Using existing GitHub CLI login: %s.\n' "$account"
     else
         [ "$no_prompt" = no ] || fail 'No GitHub authentication. Supply GH_TOKEN/GITHUB_TOKEN or run gh auth login first.'
         printf '%s\n' 'Browser login may persist personal credentials on this host, using gh storage (which can fall back to a plaintext file).'
         confirm 'Continue with GitHub browser login on this host?' || fail 'Authentication declined. Use a repository-scoped read-only token instead.'
         gh auth login --hostname github.com --web --git-protocol https --skip-ssh-key
+        account=$(gh api --hostname github.com user --jq .login) || fail 'GitHub browser login did not produce a usable authenticated account.'
+        printf 'Authenticated GitHub account: %s.\n' "$account"
     fi
+    gh api --hostname github.com "repos/$repo" --jq .full_name >/dev/null || fail "Account $account cannot read repository $repo. Check the repo name, account and token repository access."
 
     umask 077
     work=$(mktemp -d "${TMPDIR:-/tmp}/bootstrap-launcher.XXXXXXXX")
@@ -153,7 +159,7 @@ HELP
     trap 'exit 130' INT
     trap 'exit 143' TERM
     encoded_ref=$("$python" -c 'import sys,urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$ref")
-    commit=$(gh api --hostname github.com "repos/$repo/commits/$encoded_ref" --jq .sha) || fail 'Cannot resolve revision; check repository access and ref.'
+    commit=$(gh api --hostname github.com "repos/$repo/commits/$encoded_ref" --jq .sha) || fail "Repository access was verified, but revision $ref could not be resolved. Check --ref or retry after a network failure."
     case $commit in ''|*[!0-9a-f]*) fail 'GitHub returned an invalid commit SHA.' ;; esac
     [ "${#commit}" -eq 40 ] || fail 'GitHub returned an invalid commit SHA.'
     printf 'Repository: %s; ref: %s; resolved commit: %s\n' "$repo" "$ref" "$commit"
